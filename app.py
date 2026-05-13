@@ -4,8 +4,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Gaming Analytics Dashboard", layout="wide", page_icon="🎲")
-st.title("🎲 Dynamic Gaming Analytics Dashboard")
+st.set_page_config(page_title="Game Sessions Analysis Dashboard", layout="wide", page_icon="🎲")
+st.title("🎲 Game Sessions Analysis Dashboard")
 st.markdown("Upload your raw casino betting data (CSV or Excel) to generate instant insights.")
 
 # --- FILE UPLOADER ---
