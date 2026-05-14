@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import copy
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Gaming Analytics Dashboard", layout="wide", page_icon="🎲")
@@ -13,14 +14,12 @@ uploaded_file = st.file_uploader("Upload your Betting Data", type=['csv', 'xlsx'
 
 @st.cache_data
 def load_and_process_data(file):
-    # Load data
     if file.name.endswith('.csv'):
         df = pd.read_csv(file)
     else:
         df = pd.read_excel(file)
         
     # --- CURRENCY CONVERSION ---
-    # Based on the rule: 100 EUR = 100 USD = 150 CAD, etc.
     conversion_rates = {
         'EUR': 100, 'USD': 100, 'CAD': 150, 'AUD': 150, 'NZD': 150,
         'NOK': 1000, 'RUB': 8000, 'ZAR': 2000, 'INR': 10000, 'BRL': 600,
@@ -28,10 +27,8 @@ def load_and_process_data(file):
         'USDT': 100, 'XRP': 250, 'BNB': 0.4, 'ADA': 400, 'TRX': 1400
     }
     
-    # Calculate the multiplier to get to EUR (e.g., CAD multiplier is 100/150 = 0.666)
     multipliers = {currency: (100.0 / rate) for currency, rate in conversion_rates.items()}
     
-    # Map the multiplier to the dataframe based on the 'currency' column (default to 1 if unknown)
     if 'currency' in df.columns:
         df['eur_multiplier'] = df['currency'].map(multipliers).fillna(1.0)
         df['bet_amount'] = df['bet_amount'] * df['eur_multiplier']
@@ -55,7 +52,6 @@ def load_and_process_data(file):
     df['prev_end_datetime'] = df.groupby(['player_id_casino', 'game_id'])['end_datetime'].shift(1)
     df['time_diff'] = (df['start_datetime'] - df['prev_end_datetime']).dt.total_seconds()
     
-    # Session Rule: 10 MINUTES (600 SECONDS)
     df['is_new_session'] = (df['prev_end_datetime'].isna()) | (df['time_diff'] > 600)
     df['session_id'] = df['is_new_session'].cumsum()
 
@@ -68,12 +64,10 @@ def load_and_process_data(file):
     
     session_stats['duration_seconds'] = (session_stats['session_end'] - session_stats['session_start']).dt.total_seconds()
 
-    # Clean anomalies (drop sessions > 24 hours)
     valid_sessions = session_stats[session_stats['duration_seconds'] < 86400].copy()
     valid_sessions['duration_minutes'] = valid_sessions['duration_seconds'] / 60
     df_clean = df[df['session_id'].isin(valid_sessions['session_id'])]
 
-    # Calculate Averages
     game_sess_avg = valid_sessions.groupby('game_id').agg(
         avg_duration_minutes=('duration_minutes', 'mean'),
         avg_number_of_bets=('number_of_bets', 'mean'),
@@ -88,21 +82,37 @@ def load_and_process_data(file):
 # --- HTML GENERATOR HELPER ---
 def generate_html_report(figs):
     html_content = """
+    <!DOCTYPE html>
     <html>
     <head>
+        <meta charset="utf-8">
         <title>Gaming Analytics Report</title>
-        <style>
-            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8f9fa; margin: 0; padding: 20px; }
-            h1 { text-align: center; color: #111827; }
-            .chart-container { background: white; padding: 20px; border-radius: 10px; margin-bottom: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        </style>
         <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+        <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f6; margin: 0; padding: 40px; }
+            h1 { text-align: center; color: #111827; margin-bottom: 40px; }
+            .chart-container { background: white; padding: 30px; border-radius: 12px; margin-bottom: 40px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); width: 100%; overflow: hidden; }
+        </style>
     </head>
     <body>
         <h1>🎲 Gaming Analytics Report</h1>
     """
+    
     for fig in figs:
-        fig_html = fig.to_html(full_html=False, include_plotlyjs=False)
+        # Deepcopy protects the figure from being tainted by Streamlit's dark mode injection
+        export_fig = copy.deepcopy(fig)
+        
+        # Force strict dimensions and a clean white theme for the export
+        export_fig.update_layout(
+            height=600,
+            autosize=True,
+            template="plotly_white", # Forces all text/axes to be highly visible (black on white)
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            margin=dict(l=20, r=20, t=50, b=20)
+        )
+        
+        fig_html = export_fig.to_html(full_html=False, include_plotlyjs=False)
         html_content += f"<div class='chart-container'>{fig_html}</div>"
         
     html_content += "</body></html>"
@@ -114,9 +124,6 @@ if uploaded_file is not None:
         df, df_clean, valid_sessions, game_stats = load_and_process_data(uploaded_file)
         st.success("Data processed successfully! All bet and win amounts have been normalized to EUR.")
         
-        # Split layout into two columns
-        col1, col2 = st.columns(2)
-
         # 1. FUNNEL CHART
         bets_per_player = df.groupby(['player_id_casino', 'game_id']).size().reset_index(name='total_bets')
         c1 = len(bets_per_player[bets_per_player['total_bets'] == 1])
@@ -160,7 +167,7 @@ if uploaded_file is not None:
         fig5 = px.bar(x=sess_counts.index, y=sess_counts.values, title="📊 Session Length Distribution", color_discrete_sequence=['#818cf8'])
         fig5.update_layout(xaxis_title="Duration", yaxis_title="Number of Sessions")
 
-        # 6. BET DISTRIBUTION (Now accurately grouped by EUR equivalent)
+        # 6. BET DISTRIBUTION 
         bins_bet = [0, 1, 5, 20, float('inf')]
         labels_bet = ['0-1 EUR', '1-5 EUR', '5-20 EUR', '20+ EUR']
         df_clean['bet_bracket'] = pd.cut(df_clean['bet_amount'], bins=bins_bet, labels=labels_bet, include_lowest=True, right=True)
@@ -169,7 +176,12 @@ if uploaded_file is not None:
         fig6 = px.pie(bet_counts, values='Count', names='Bracket', hole=0.5, 
                       title="🎰 Bet Amount Distribution (in EUR)", color_discrete_sequence=['#4f46e5', '#818cf8', '#10B981', '#EF4444'])
 
+        # --- EXPORT REPORT (Must happen BEFORE Streamlit renders them on screen) ---
+        all_figs = [fig1, fig2, fig3, fig5, fig6, fig4]
+        html_report = generate_html_report(all_figs)
+        
         # --- RENDER CHARTS IN APP ---
+        col1, col2 = st.columns(2)
         st.plotly_chart(fig1, use_container_width=True)
         with col1:
             st.plotly_chart(fig2, use_container_width=True)
@@ -179,14 +191,8 @@ if uploaded_file is not None:
             st.plotly_chart(fig6, use_container_width=True)
         st.plotly_chart(fig4, use_container_width=True)
 
-        # --- EXPORT REPORT ---
         st.markdown("---")
         st.subheader("📥 Export Reports")
-        st.markdown("Download a fully interactive HTML version of this report. You can share it, or open it and Print to PDF.")
-        
-        all_figs = [fig1, fig2, fig3, fig5, fig6, fig4]
-        html_report = generate_html_report(all_figs)
-        
         st.download_button(
             label="⬇️ Download Interactive Report (.html)",
             data=html_report,
