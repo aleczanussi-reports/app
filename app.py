@@ -105,9 +105,11 @@ def build_charts(df, df_clean, valid_sessions, game_stats, is_export=False):
     fig3 = px.bar(top_volume, x='game_id', y='total_volume', 
                   title="💰 Top 10 Games by Total Bet Volume (€)", color_discrete_sequence=['#10B981'])
 
+    # FIXED: Added a massive qualitative color palette so the exported bubbles stay colorful!
     fig4 = px.scatter(game_stats, x='avg_number_of_bets', y='avg_single_bet_amount', 
                       size='total_volume', color='game_id', hover_name='game_id', 
-                      title="💎 Volume vs Bet Size (Bubble size = Total Volume)")
+                      title="💎 Volume vs Bet Size (Bubble size = Total Volume)",
+                      color_discrete_sequence=px.colors.qualitative.Alphabet * 3)
 
     bins_sess = [-1, 1, 3, 5, 10, 20, float('inf')]
     labels_sess = ['0-1 min', '1-3 min', '3-5 min', '5-10 min', '10-20 min', '>20 min']
