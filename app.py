@@ -19,6 +19,24 @@ def load_and_process_data(file):
     else:
         df = pd.read_excel(file)
         
+    # --- CURRENCY CONVERSION ---
+    # Based on the rule: 100 EUR = 100 USD = 150 CAD, etc.
+    conversion_rates = {
+        'EUR': 100, 'USD': 100, 'CAD': 150, 'AUD': 150, 'NZD': 150,
+        'NOK': 1000, 'RUB': 8000, 'ZAR': 2000, 'INR': 10000, 'BRL': 600,
+        'BTC': 0.0024, 'ETH': 0.06, 'LTC': 1.8, 'BCH': 0.5, 'DOG': 1500,
+        'USDT': 100, 'XRP': 250, 'BNB': 0.4, 'ADA': 400, 'TRX': 1400
+    }
+    
+    # Calculate the multiplier to get to EUR (e.g., CAD multiplier is 100/150 = 0.666)
+    multipliers = {currency: (100.0 / rate) for currency, rate in conversion_rates.items()}
+    
+    # Map the multiplier to the dataframe based on the 'currency' column (default to 1 if unknown)
+    if 'currency' in df.columns:
+        df['eur_multiplier'] = df['currency'].map(multipliers).fillna(1.0)
+        df['bet_amount'] = df['bet_amount'] * df['eur_multiplier']
+        df['win_amount'] = df['win_amount'] * df['eur_multiplier']
+
     # --- ROBUST DATETIME PARSING ---
     def get_datetime(df, date_col, time_col):
         if pd.api.types.is_datetime64_any_dtype(df[date_col]):
@@ -92,9 +110,9 @@ def generate_html_report(figs):
 
 # --- DASHBOARD GENERATION ---
 if uploaded_file is not None:
-    with st.spinner('Processing data and building dashboard...'):
+    with st.spinner('Processing data and converting currencies to EUR...'):
         df, df_clean, valid_sessions, game_stats = load_and_process_data(uploaded_file)
-        st.success("Data processed successfully!")
+        st.success("Data processed successfully! All bet and win amounts have been normalized to EUR.")
         
         # Split layout into two columns
         col1, col2 = st.columns(2)
@@ -142,14 +160,14 @@ if uploaded_file is not None:
         fig5 = px.bar(x=sess_counts.index, y=sess_counts.values, title="📊 Session Length Distribution", color_discrete_sequence=['#818cf8'])
         fig5.update_layout(xaxis_title="Duration", yaxis_title="Number of Sessions")
 
-        # 6. BET DISTRIBUTION
+        # 6. BET DISTRIBUTION (Now accurately grouped by EUR equivalent)
         bins_bet = [0, 1, 5, 20, float('inf')]
         labels_bet = ['0-1 EUR', '1-5 EUR', '5-20 EUR', '20+ EUR']
         df_clean['bet_bracket'] = pd.cut(df_clean['bet_amount'], bins=bins_bet, labels=labels_bet, include_lowest=True, right=True)
         bet_counts = df_clean['bet_bracket'].value_counts().reset_index()
         bet_counts.columns = ['Bracket', 'Count']
         fig6 = px.pie(bet_counts, values='Count', names='Bracket', hole=0.5, 
-                      title="🎰 Bet Amount Distribution", color_discrete_sequence=['#4f46e5', '#818cf8', '#10B981', '#EF4444'])
+                      title="🎰 Bet Amount Distribution (in EUR)", color_discrete_sequence=['#4f46e5', '#818cf8', '#10B981', '#EF4444'])
 
         # --- RENDER CHARTS IN APP ---
         st.plotly_chart(fig1, use_container_width=True)
