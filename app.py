@@ -105,7 +105,6 @@ def build_charts(df, df_clean, valid_sessions, game_stats, is_export=False):
     fig3 = px.bar(top_volume, x='game_id', y='total_volume', 
                   title="💰 Top 10 Games by Total Bet Volume (€)", color_discrete_sequence=['#10B981'])
 
-    # FIXED: Added a massive qualitative color palette so the exported bubbles stay colorful!
     fig4 = px.scatter(game_stats, x='avg_number_of_bets', y='avg_single_bet_amount', 
                       size='total_volume', color='game_id', hover_name='game_id', 
                       title="💎 Volume vs Bet Size (Bubble size = Total Volume)",
@@ -128,14 +127,14 @@ def build_charts(df, df_clean, valid_sessions, game_stats, is_export=False):
 
     figs = [fig1, fig2, fig3, fig5, fig6, fig4]
 
-    # If this set is specifically for the HTML export, strictly enforce formatting
+    # --- DARK MODE EXPORT FORMATTING ---
     if is_export:
         for f in figs:
             f.update_layout(
                 height=600,
-                template="plotly_white",
-                paper_bgcolor="white",
-                plot_bgcolor="white",
+                template="plotly_dark",     # Force Plotly's dark theme
+                paper_bgcolor="#1e293b",    # Dark slate background for the chart area
+                plot_bgcolor="#1e293b",
                 margin=dict(l=20, r=20, t=50, b=20)
             )
             
@@ -143,6 +142,7 @@ def build_charts(df, df_clean, valid_sessions, game_stats, is_export=False):
 
 # --- HTML GENERATOR HELPER ---
 def generate_html_report(figs):
+    # Updated CSS to match the dark theme
     html_content = """
     <!DOCTYPE html>
     <html>
@@ -150,16 +150,15 @@ def generate_html_report(figs):
         <meta charset="utf-8">
         <title>Gaming Analytics Report</title>
         <style>
-            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f6; margin: 0; padding: 40px; }
-            h1 { text-align: center; color: #111827; margin-bottom: 40px; }
-            .chart-container { background: white; padding: 30px; border-radius: 12px; margin-bottom: 40px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); width: 100%; overflow: hidden; }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0f172a; margin: 0; padding: 40px; }
+            h1 { text-align: center; color: #f8fafc; margin-bottom: 40px; }
+            .chart-container { background: #1e293b; padding: 30px; border-radius: 12px; margin-bottom: 40px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); width: 100%; overflow: hidden; }
         </style>
     </head>
     <body>
         <h1>🎲 Gaming Analytics Report</h1>
     """
     for i, fig in enumerate(figs):
-        # We explicitly command Plotly to inject its decoder script so the data renders perfectly
         include_script = 'cdn' if i == 0 else False
         fig_html = fig.to_html(full_html=False, include_plotlyjs=include_script)
         html_content += f"<div class='chart-container'>{fig_html}</div>"
