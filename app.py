@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import io
-from PIL import Image
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Gaming Analytics Dashboard", layout="wide", page_icon="🎲")
@@ -69,40 +67,39 @@ def load_and_process_data(file):
     
     return df, df_clean, valid_sessions, game_stats
 
-# --- PDF GENERATOR HELPER ---
-def generate_pdf(figs):
-    images = []
+# --- HTML GENERATOR HELPER ---
+def generate_html_report(figs):
+    html_content = """
+    <html>
+    <head>
+        <title>Gaming Analytics Report</title>
+        <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8f9fa; margin: 0; padding: 20px; }
+            h1 { text-align: center; color: #111827; }
+            .chart-container { background: white; padding: 20px; border-radius: 10px; margin-bottom: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        </style>
+        <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    </head>
+    <body>
+        <h1>🎲 Gaming Analytics Report</h1>
+    """
     for fig in figs:
-        # Convert plotly figure to high-res PNG image bytes
-        img_bytes = fig.to_image(format="png", width=1200, height=800, scale=2)
-        # Open with PIL and convert to RGB (required for saving as PDF)
-        image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-        images.append(image)
+        fig_html = fig.to_html(full_html=False, include_plotlyjs=False)
+        html_content += f"<div class='chart-container'>{fig_html}</div>"
         
-    pdf_buffer = io.BytesIO()
-    if images:
-        # Save the first image, and append the rest as subsequent pages
-        images[0].save(pdf_buffer, format="PDF", save_all=True, append_images=images[1:], resolution=100.0)
-        
-    return pdf_buffer.getvalue()
+    html_content += "</body></html>"
+    return html_content
 
 # --- DASHBOARD GENERATION ---
 if uploaded_file is not None:
     with st.spinner('Processing data and building dashboard...'):
         df, df_clean, valid_sessions, game_stats = load_and_process_data(uploaded_file)
-        st.success("Data processed successfully! (Session logic set to 10 minutes)")
-        
-        # --- PDF EXPORT SECTION ---
-        st.markdown("---")
-        st.subheader("📥 Export Reports")
-        generate_pdf_checkbox = st.checkbox("Check here to compile the charts into a downloadable PDF report (takes ~10 seconds)")
+        st.success("Data processed successfully!")
         
         # Split layout into two columns
         col1, col2 = st.columns(2)
 
-        # 1. FUNNEL CHART (Full Width)
-        st.markdown("---")
-        st.subheader("🎯 Player Funnel & Retention")
+        # 1. FUNNEL CHART
         bets_per_player = df.groupby(['player_id_casino', 'game_id']).size().reset_index(name='total_bets')
         c1 = len(bets_per_player[bets_per_player['total_bets'] == 1])
         c2 = len(bets_per_player[(bets_per_player['total_bets'] >= 2) & (bets_per_player['total_bets'] <= 10)])
@@ -120,64 +117,65 @@ if uploaded_file is not None:
             textposition="inside", textinfo="value+percent initial",
             marker={"color": ["#5A3E92", "#3B82F6", "#4ADE80", "#EF4444"]}
         ))
-        st.plotly_chart(fig1, use_container_width=True)
+        fig1.update_layout(title="🎯 Player Funnel & Retention")
 
         # 2. TOP ENGAGING GAMES
-        with col1:
-            top_engaging = game_stats.sort_values('avg_duration_minutes', ascending=True).tail(10)
-            fig2 = px.bar(top_engaging, x='avg_duration_minutes', y='game_id', orientation='h', 
-                          title="Top 10 Games: Avg Session Duration (mins)", color_discrete_sequence=['#3B82F6'])
-            st.plotly_chart(fig2, use_container_width=True)
+        top_engaging = game_stats.sort_values('avg_duration_minutes', ascending=True).tail(10)
+        fig2 = px.bar(top_engaging, x='avg_duration_minutes', y='game_id', orientation='h', 
+                      title="⏱️ Top 10 Games: Avg Session Duration (mins)", color_discrete_sequence=['#3B82F6'])
 
         # 3. TOP VOLUME GAMES
-        with col2:
-            top_volume = game_stats.sort_values('total_volume', ascending=False).head(10)
-            fig3 = px.bar(top_volume, x='game_id', y='total_volume', 
-                          title="Top 10 Games by Total Bet Volume (€)", color_discrete_sequence=['#10B981'])
-            st.plotly_chart(fig3, use_container_width=True)
+        top_volume = game_stats.sort_values('total_volume', ascending=False).head(10)
+        fig3 = px.bar(top_volume, x='game_id', y='total_volume', 
+                      title="💰 Top 10 Games by Total Bet Volume (€)", color_discrete_sequence=['#10B981'])
 
-        # 4. SPEND BEHAVIOR (Full Width)
-        st.subheader("💎 Player Spend Behavior")
+        # 4. SPEND BEHAVIOR
         fig4 = px.scatter(game_stats, x='avg_number_of_bets', y='avg_single_bet_amount', 
                           size='total_volume', color='game_id', hover_name='game_id', 
-                          title="Volume vs Bet Size (Bubble size = Total Volume)")
-        st.plotly_chart(fig4, use_container_width=True)
+                          title="💎 Volume vs Bet Size (Bubble size = Total Volume)")
 
         # 5. SESSION DISTRIBUTION
-        with col1:
-            bins_sess = [-1, 1, 3, 5, 10, 20, float('inf')]
-            labels_sess = ['0-1 min', '1-3 min', '3-5 min', '5-10 min', '10-20 min', '>20 min']
-            valid_sessions['Duration_Category'] = pd.cut(valid_sessions['duration_minutes'], bins=bins_sess, labels=labels_sess, right=True)
-            sess_counts = valid_sessions['Duration_Category'].value_counts().reindex(labels_sess)
-            fig5 = px.bar(x=sess_counts.index, y=sess_counts.values, title="Session Length Distribution", color_discrete_sequence=['#818cf8'])
-            fig5.update_layout(xaxis_title="Duration", yaxis_title="Number of Sessions")
-            st.plotly_chart(fig5, use_container_width=True)
+        bins_sess = [-1, 1, 3, 5, 10, 20, float('inf')]
+        labels_sess = ['0-1 min', '1-3 min', '3-5 min', '5-10 min', '10-20 min', '>20 min']
+        valid_sessions['Duration_Category'] = pd.cut(valid_sessions['duration_minutes'], bins=bins_sess, labels=labels_sess, right=True)
+        sess_counts = valid_sessions['Duration_Category'].value_counts().reindex(labels_sess)
+        fig5 = px.bar(x=sess_counts.index, y=sess_counts.values, title="📊 Session Length Distribution", color_discrete_sequence=['#818cf8'])
+        fig5.update_layout(xaxis_title="Duration", yaxis_title="Number of Sessions")
 
         # 6. BET DISTRIBUTION
-        with col2:
-            bins_bet = [0, 1, 5, 20, float('inf')]
-            labels_bet = ['0-1 EUR', '1-5 EUR', '5-20 EUR', '20+ EUR']
-            df_clean['bet_bracket'] = pd.cut(df_clean['bet_amount'], bins=bins_bet, labels=labels_bet, include_lowest=True, right=True)
-            bet_counts = df_clean['bet_bracket'].value_counts().reset_index()
-            bet_counts.columns = ['Bracket', 'Count']
-            fig6 = px.pie(bet_counts, values='Count', names='Bracket', hole=0.5, 
-                          title="Bet Amount Distribution", color_discrete_sequence=['#4f46e5', '#818cf8', '#10B981', '#EF4444'])
-            st.plotly_chart(fig6, use_container_width=True)
+        bins_bet = [0, 1, 5, 20, float('inf')]
+        labels_bet = ['0-1 EUR', '1-5 EUR', '5-20 EUR', '20+ EUR']
+        df_clean['bet_bracket'] = pd.cut(df_clean['bet_amount'], bins=bins_bet, labels=labels_bet, include_lowest=True, right=True)
+        bet_counts = df_clean['bet_bracket'].value_counts().reset_index()
+        bet_counts.columns = ['Bracket', 'Count']
+        fig6 = px.pie(bet_counts, values='Count', names='Bracket', hole=0.5, 
+                      title="🎰 Bet Amount Distribution", color_discrete_sequence=['#4f46e5', '#818cf8', '#10B981', '#EF4444'])
 
-        # --- TRIGGER PDF GENERATION ---
-        if generate_pdf_checkbox:
-            with st.spinner("Compiling PDF..."):
-                # Collect all figures into a list
-                all_figs = [fig1, fig2, fig3, fig4, fig5, fig6]
-                pdf_data = generate_pdf(all_figs)
-                
-                st.download_button(
-                    label="⬇️ Download PDF Report",
-                    data=pdf_data,
-                    file_name="Gaming_Analytics_Report.pdf",
-                    mime="application/pdf",
-                    type="primary"
-                )
+        # --- RENDER CHARTS IN APP ---
+        st.plotly_chart(fig1, use_container_width=True)
+        with col1:
+            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig5, use_container_width=True)
+        with col2:
+            st.plotly_chart(fig3, use_container_width=True)
+            st.plotly_chart(fig6, use_container_width=True)
+        st.plotly_chart(fig4, use_container_width=True)
+
+        # --- EXPORT REPORT ---
+        st.markdown("---")
+        st.subheader("📥 Export Reports")
+        st.markdown("Download a fully interactive HTML version of this report. You can share it, or open it and Print to PDF.")
+        
+        all_figs = [fig1, fig2, fig3, fig5, fig6, fig4]
+        html_report = generate_html_report(all_figs)
+        
+        st.download_button(
+            label="⬇️ Download Interactive Report (.html)",
+            data=html_report,
+            file_name="Gaming_Analytics_Report.html",
+            mime="text/html",
+            type="primary"
+        )
 
 else:
     st.info("Awaiting file upload. Please upload a dataset to begin.")
