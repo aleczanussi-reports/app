@@ -4,8 +4,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Game Sessions Analysis Dashboard", layout="wide", page_icon="🎲")
-st.title("🎲 Game Sessions Analysis Dashboard")
+st.set_page_config(page_title="Gaming Analytics Dashboard", layout="wide", page_icon="🎲")
+st.title("🎲 Dynamic Gaming Analytics Dashboard")
 st.markdown("Upload your raw casino betting data (CSV or Excel) to generate instant insights.")
 
 # --- FILE UPLOADER ---
@@ -20,14 +20,9 @@ def load_and_process_data(file):
         df = pd.read_excel(file)
         
     # --- ROBUST DATETIME PARSING ---
-    # We check if the column is already a datetime object (common in Excel)
-    # If not, we combine date and time strings.
-    
     def get_datetime(df, date_col, time_col):
-        # If it's already a datetime (Excel), just return it
         if pd.api.types.is_datetime64_any_dtype(df[date_col]):
             return df[date_col]
-        # Otherwise (CSV), combine the strings
         return pd.to_datetime(df[date_col].astype(str) + ' ' + df[time_col].astype(str))
 
     try:
@@ -42,7 +37,8 @@ def load_and_process_data(file):
     df['prev_end_datetime'] = df.groupby(['player_id_casino', 'game_id'])['end_datetime'].shift(1)
     df['time_diff'] = (df['start_datetime'] - df['prev_end_datetime']).dt.total_seconds()
     
-    df['is_new_session'] = (df['prev_end_datetime'].isna()) | (df['time_diff'] > 120)
+    # --- UPDATED SESSION RULE: 10 MINUTES (600 SECONDS) ---
+    df['is_new_session'] = (df['prev_end_datetime'].isna()) | (df['time_diff'] > 600)
     df['session_id'] = df['is_new_session'].cumsum()
 
     session_stats = df.groupby(['player_id_casino', 'game_id', 'session_id']).agg(
@@ -54,10 +50,12 @@ def load_and_process_data(file):
     
     session_stats['duration_seconds'] = (session_stats['session_end'] - session_stats['session_start']).dt.total_seconds()
 
+    # Clean anomalies (drop sessions > 24 hours)
     valid_sessions = session_stats[session_stats['duration_seconds'] < 86400].copy()
     valid_sessions['duration_minutes'] = valid_sessions['duration_seconds'] / 60
     df_clean = df[df['session_id'].isin(valid_sessions['session_id'])]
 
+    # Calculate Averages
     game_sess_avg = valid_sessions.groupby('game_id').agg(
         avg_duration_minutes=('duration_minutes', 'mean'),
         avg_number_of_bets=('number_of_bets', 'mean'),
@@ -74,7 +72,7 @@ if uploaded_file is not None:
     with st.spinner('Processing data and building dashboard...'):
         df, df_clean, valid_sessions, game_stats = load_and_process_data(uploaded_file)
         
-        st.success("Data processed successfully!")
+        st.success("Data processed successfully! (Session logic set to 10 minutes)")
         
         # Split layout into two columns
         col1, col2 = st.columns(2)
