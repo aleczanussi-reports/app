@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import io
+from PIL import Image
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Gaming Analytics Dashboard", layout="wide", page_icon="🎲")
@@ -37,7 +39,7 @@ def load_and_process_data(file):
     df['prev_end_datetime'] = df.groupby(['player_id_casino', 'game_id'])['end_datetime'].shift(1)
     df['time_diff'] = (df['start_datetime'] - df['prev_end_datetime']).dt.total_seconds()
     
-    # --- UPDATED SESSION RULE: 10 MINUTES (600 SECONDS) ---
+    # Session Rule: 10 MINUTES (600 SECONDS)
     df['is_new_session'] = (df['prev_end_datetime'].isna()) | (df['time_diff'] > 600)
     df['session_id'] = df['is_new_session'].cumsum()
 
@@ -67,17 +69,39 @@ def load_and_process_data(file):
     
     return df, df_clean, valid_sessions, game_stats
 
+# --- PDF GENERATOR HELPER ---
+def generate_pdf(figs):
+    images = []
+    for fig in figs:
+        # Convert plotly figure to high-res PNG image bytes
+        img_bytes = fig.to_image(format="png", width=1200, height=800, scale=2)
+        # Open with PIL and convert to RGB (required for saving as PDF)
+        image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        images.append(image)
+        
+    pdf_buffer = io.BytesIO()
+    if images:
+        # Save the first image, and append the rest as subsequent pages
+        images[0].save(pdf_buffer, format="PDF", save_all=True, append_images=images[1:], resolution=100.0)
+        
+    return pdf_buffer.getvalue()
+
 # --- DASHBOARD GENERATION ---
 if uploaded_file is not None:
     with st.spinner('Processing data and building dashboard...'):
         df, df_clean, valid_sessions, game_stats = load_and_process_data(uploaded_file)
-        
         st.success("Data processed successfully! (Session logic set to 10 minutes)")
+        
+        # --- PDF EXPORT SECTION ---
+        st.markdown("---")
+        st.subheader("📥 Export Reports")
+        generate_pdf_checkbox = st.checkbox("Check here to compile the charts into a downloadable PDF report (takes ~10 seconds)")
         
         # Split layout into two columns
         col1, col2 = st.columns(2)
 
         # 1. FUNNEL CHART (Full Width)
+        st.markdown("---")
         st.subheader("🎯 Player Funnel & Retention")
         bets_per_player = df.groupby(['player_id_casino', 'game_id']).size().reset_index(name='total_bets')
         c1 = len(bets_per_player[bets_per_player['total_bets'] == 1])
@@ -139,5 +163,21 @@ if uploaded_file is not None:
             fig6 = px.pie(bet_counts, values='Count', names='Bracket', hole=0.5, 
                           title="Bet Amount Distribution", color_discrete_sequence=['#4f46e5', '#818cf8', '#10B981', '#EF4444'])
             st.plotly_chart(fig6, use_container_width=True)
+
+        # --- TRIGGER PDF GENERATION ---
+        if generate_pdf_checkbox:
+            with st.spinner("Compiling PDF..."):
+                # Collect all figures into a list
+                all_figs = [fig1, fig2, fig3, fig4, fig5, fig6]
+                pdf_data = generate_pdf(all_figs)
+                
+                st.download_button(
+                    label="⬇️ Download PDF Report",
+                    data=pdf_data,
+                    file_name="Gaming_Analytics_Report.pdf",
+                    mime="application/pdf",
+                    type="primary"
+                )
+
 else:
     st.info("Awaiting file upload. Please upload a dataset to begin.")
